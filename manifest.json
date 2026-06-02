@@ -2,7 +2,7 @@
   "name": "斑比家計簿",
   "short_name": "家計簿",
   "description": "溫馨家庭記帳APP，支援雲端同步",
-  "start_url": "./expense-tracker.html",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#FFF9F5",
   "theme_color": "#F2A6A6",
