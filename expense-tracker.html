@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>斑比家計簿 🦌</title>
+    <meta name="description" content="溫馨家庭記帳APP，支援雲端同步">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="斑比家計簿">
+    <link rel="apple-touch-icon" href="bambi.png">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#F2A6A6">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'M PLUS Rounded 1c', sans-serif;
+            background-color: #FFF9F5;
+            background-image: radial-gradient(#FFE8E3 2px, transparent 2px);
+            background-size: 30px 30px;
+        }
+        .card-kawaii {
+            background: white;
+            border-radius: 28px;
+            box-shadow: 0 8px 24px rgba(235, 203, 198, 0.4);
+            border: 3px solid #FFE4E1;
+        }
+        .btn-kawaii {
+            border-radius: 20px;
+            box-shadow: 0 4px 0 #D49B95;
+            transition: all 0.1s;
+        }
+        .btn-kawaii:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 #D49B95;
+        }
+        .reminders-box {
+            background: linear-gradient(135deg, #FFF0F0 0%, #FFE4E1 100%);
+            border-radius: 20px;
+        }
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type="number"] { -moz-appearance: textfield; }
+
+        #loadingOverlay {
+            position: fixed; inset: 0;
+            background: rgba(255,249,245,0.85);
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 999;
+        }
+        #loadingOverlay.hidden { display: none; }
+        .spinner {
+            width: 48px; height: 48px;
+            border: 5px solid #FFE4E1;
+            border-top-color: #F2A6A6;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        #toast {
+            position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+            background: #4A4A4A; color: white;
+            padding: 10px 24px; border-radius: 20px;
+            font-weight: bold; font-size: 14px;
+            opacity: 0; transition: opacity 0.3s;
+            pointer-events: none; z-index: 998; white-space: nowrap;
+        }
+        #toast.show { opacity: 1; }
+
+        /* 分析圓餅圖 */
+        .chart-bar {
+            height: 22px;
+            border-radius: 11px;
+            transition: width 0.6s ease;
+            min-width: 4px;
+        }
+
+        /* 歷史清單折疊 */
+        .history-toggle {
+            cursor: pointer;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .history-toggle .chevron {
+            transition: transform 0.3s ease;
+        }
+        .history-toggle.open .chevron {
+            transform: rotate(180deg);
+        }
+        #expenseListWrapper {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s ease;
+        }
+        #expenseListWrapper.open {
+            max-height: 9999px;
+        }
+        .analysis-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+        .analysis-stat {
+            background: #FFF9F5;
+            border: 2px solid #FFE4E1;
+            border-radius: 18px;
+            padding: 12px;
+        }
+        .expense-item {
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .expense-detail {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.25s ease, opacity 0.25s ease, margin-top 0.25s ease;
+            opacity: 0;
+        }
+        .expense-item.open .expense-detail {
+            max-height: 120px;
+            opacity: 1;
+            margin-top: 10px;
+        }
+        .expense-item .item-chevron {
+            transition: transform 0.25s ease;
+        }
+        .expense-item.open .item-chevron {
+            transform: rotate(180deg);
+        }
+
+        /* PWA install banner */
+        #installBanner {
+            background: linear-gradient(135deg, #E8F5E9, #C8E6C9);
+            border: 2px solid #81C784;
+            border-radius: 20px;
+            padding: 14px 16px;
+            display: none;
+        }
+        #installBanner.show { display: block; }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#F2A6A6',
+                        secondary: '#FFDAB9',
+                        accent: '#E6C2BF',
+                        dark: '#795548',
+                        light: '#FFF9F5',
+                        alert: '#FF8A80'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="text-dark antialiased min-h-screen pb-12">
+
+<div id="loadingOverlay" class="hidden">
+    <div class="spinner mb-4"></div>
+    <p class="font-bold text-gray-500">正在連線中...</p>
+</div>
+
+<div id="toast"></div>
+
+<div class="max-w-md mx-auto px-4 pt-6">
+
+    <!-- Header -->
+    <header class="mb-6 flex flex-col items-center">
+        <div class="w-28 h-28 rounded-full border-4 border-white shadow-md overflow-hidden bg-white mb-3">
+            <img src="bambi.png" alt="Bambi 小鹿斑比" class="w-full h-full object-cover">
+        </div>
+        <h1 class="text-2xl font-extrabold text-dark tracking-wider">斑比家計簿 🦌</h1>
+        <p class="text-sm text-gray-400 font-medium mt-1">我們的溫馨家庭帳本</p>
+        <div id="syncStatus" class="mt-2 text-xs font-bold px-3 py-1 rounded-full bg-green-100 text-green-600">● 雲端同步已啟用 ☁️</div>
+    </header>
+
+    <!-- PWA Install Banner -->
+    <div id="installBanner" class="mb-5">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="font-bold text-green-800 text-sm">📲 安裝到手機主畫面</p>
+                <p class="text-xs text-green-700 mt-0.5">像真正的APP一樣使用</p>
+            </div>
+            <button id="installBtn" class="bg-green-500 hover:bg-green-600 text-white font-bold px-4 py-2 rounded-xl text-sm transition-colors">安裝</button>
+        </div>
+    </div>
+
+    <!-- Reminders Section -->
+    <div class="reminders-box p-5 mb-6 shadow-sm border border-pink-100">
+        <h3 class="text-md font-bold mb-3 flex items-center gap-2 text-dark">
+            <svg class="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/>
+            </svg>
+            近期重要提醒
+        </h3>
+        <div id="remindersList" class="space-y-2 text-sm font-medium"></div>
+    </div>
+
+    <!-- Dashboard -->
+    <div class="card-kawaii bg-white p-6 mb-6 text-center relative overflow-hidden">
+        <div class="absolute top-0 left-0 w-full h-2 bg-primary"></div>
+        <p class="text-sm font-bold mb-1 text-gray-400 mt-2">本月家庭總支出</p>
+        <div class="text-4xl font-extrabold text-primary tracking-wider">$<span id="totalExpense">0</span></div>
+        <p class="text-xs text-gray-300 mt-2 font-bold" id="monthLabel"></p>
+    </div>
+
+    <!-- Add Expense Form -->
+    <div class="card-kawaii p-6 mb-6 relative">
+        <div class="absolute -top-4 -right-2 text-3xl">🍄</div>
+        <h2 class="text-lg font-bold mb-5 text-dark flex items-center gap-2">✏️ 新增家庭開銷</h2>
+        <form id="expenseForm" class="space-y-4">
+            <div>
+                <label class="block text-sm font-bold text-gray-500 mb-1 pl-1" for="amount">金額</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                        <span class="text-gray-400 font-bold">$</span>
+                    </div>
+                    <input type="number" id="amount" required min="1" placeholder="0"
+                        class="w-full pl-8 pr-4 py-3 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-primary focus:bg-white focus:outline-none transition-colors text-lg font-bold text-dark">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-bold text-gray-500 mb-1 pl-1" for="category">科目分類</label>
+                    <select id="category" class="w-full px-3 py-3 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-primary focus:bg-white focus:outline-none appearance-none cursor-pointer font-bold text-dark text-sm">
+                        <option>🏠 居住・房貸</option>
+                        <option>🚗 交通・車貸</option>
+                        <option>⛽ 交通・油資停車</option>
+                        <option>🛒 伙食・買菜</option>
+                        <option>🍱 伙食・外食</option>
+                        <option>💧 水費</option>
+                        <option>💡 電費</option>
+                        <option>🔥 瓦斯費</option>
+                        <option>📱 電話網路費</option>
+                        <option>📚 教育・補習費</option>
+                        <option>📖 教育・書本文具</option>
+                        <option>🏥 醫療保健/看診</option>
+                        <option>💊 醫療保健/藥品</option>
+                        <option>🛡️ 保險費</option>
+                        <option>👕 服飾</option>
+                        <option>🧹 日用品・清潔</option>
+                        <option>🎈 休閒娛樂</option>
+                        <option>🎁 禮品・人情</option>
+                        <option>🏦 儲蓄・投資</option>
+                        <option>📦 其他雜支</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-500 mb-1 pl-1" for="date">日期</label>
+                    <input type="date" id="date" required
+                        class="w-full px-3 py-3 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-primary focus:bg-white focus:outline-none font-bold text-dark text-sm">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-bold text-gray-500 mb-1 pl-1" for="note">詳細備註 <span class="text-xs font-normal opacity-70">(選填)</span></label>
+                <input type="text" id="note" placeholder="例如：六月電費、大寶補習費..."
+                    class="w-full px-4 py-3 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-primary focus:bg-white focus:outline-none font-bold text-dark">
+            </div>
+
+            <button type="submit" id="submitBtn" class="w-full bg-primary hover:bg-[#E59595] text-white font-extrabold py-3.5 px-4 btn-kawaii mt-2 text-lg tracking-wider">
+                記錄下來 🌸
+            </button>
+        </form>
+    </div>
+
+    <!-- Category Analysis -->
+    <div class="card-kawaii p-6 mb-6">
+        <h2 class="text-lg font-bold mb-4 text-dark flex items-center gap-2">📊 本月費用分析</h2>
+        <div id="analysisContent">
+            <p class="text-sm text-gray-400 text-center py-4">尚無資料</p>
+        </div>
+    </div>
+
+    <!-- Expense List (Collapsible) -->
+    <div class="mb-6">
+        <div class="history-toggle flex items-center justify-between px-2 py-3" id="historyToggle" onclick="toggleHistory()">
+            <h2 class="text-lg font-bold text-dark flex items-center gap-2">
+                📝 歷史清單
+                <span class="text-xs font-bold text-primary bg-white border border-primary px-3 py-1 rounded-full" id="recordCount">0 筆</span>
+            </h2>
+            <div class="flex items-center gap-1 text-gray-400 text-sm font-bold">
+                <span id="toggleHint">點擊展開</span>
+                <svg class="w-5 h-5 chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </div>
+        </div>
+
+        <div id="expenseListWrapper">
+            <div id="expenseList" class="space-y-4 pt-2"></div>
+
+            <div id="emptyState" class="hidden text-center py-12 card-kawaii bg-white">
+                <div class="text-3xl mb-3">🍃</div>
+                <p class="text-gray-400 font-bold">目前還沒有任何紀錄</p>
+                <p class="text-gray-400 text-xs mt-1">每一筆花費都值得被記錄 🌸</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ============================================================
+//  Apps Script 網址（已固定，直接連線 Google 試算表）
+// ============================================================
+const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxE2eqHLM4LzzF1LMgs9iSehHIYd4Uj75Ms7xfUyZmUhEczKQwcFkQ2IOJ_UGq08TCCBQ/exec';
+const STORAGE_KEY = 'familyExpenses_v2';
+let expenses = [];
+let isSynced = true;
+const today = new Date();
+
+document.getElementById('date').valueAsDate = today;
+document.getElementById('monthLabel').textContent =
+    `${today.getFullYear()} 年 ${today.getMonth() + 1} 月`;
+
+// ── 分析用的顏色對照表 ──
+const categoryColors = {
+    '居住': '#F48FB1', '房貸': '#F48FB1',
+    '交通': '#90CAF9', '車貸': '#90CAF9', '油資停車': '#64B5F6',
+    '伙食': '#FFCC80', '買菜': '#FFB74D', '外食': '#FFA726',
+    '水費': '#80DEEA', '電費': '#FFF176', '瓦斯費': '#FFAB91',
+    '電話網路費': '#CE93D8',
+    '教育': '#A5D6A7', '補習費': '#81C784', '書本文具': '#66BB6A',
+    '醫療保健': '#EF9A9A', '看診': '#EF9A9A', '藥品': '#E57373',
+    '保險費': '#B0BEC5',
+    '服飾': '#F8BBD0',
+    '日用品': '#BCAAA4', '清潔': '#BCAAA4',
+    '休閒娛樂': '#B39DDB',
+    '禮品': '#FFF59D', '人情': '#FFF59D',
+    '儲蓄': '#80CBC4', '投資': '#80CBC4',
+    '其他雜支': '#CFD8DC'
+};
+
+function getCatColor(catText) {
+    for (const key in categoryColors) {
+        if (catText.includes(key)) return categoryColors[key];
+    }
+    return '#CFD8DC';
+}
+
+function normalizeCategory(category) {
+    return (category || '').replace('醫療藥品', '醫療保健/藥品');
+}
+
+function splitCategory(category) {
+    const normalized = normalizeCategory(category);
+    const emojiMatch = normalized.match(/^([\uD800-\uDBFF][\uDC00-\uDFFF]|[\u2600-\u27FF\uFE00-\uFE0F]|[^\s])/u);
+    const emoji = emojiMatch ? emojiMatch[0] : '📦';
+    const catText = normalized.replace(emoji, '').replace(/^[\s·・]+/, '').trim();
+    const mainCat = catText.split(/[・/]/)[0].trim();
+    return { emoji, catText, mainCat };
+}
+
+function toggleExpenseDetail(id) {
+    const item = document.querySelector(`[data-expense-id="${id}"]`);
+    if (item) item.classList.toggle('open');
+}
+
+// ── Toast ──
+function showToast(msg, duration = 2800) {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), duration);
+}
+
+function setLoading(show) {
+    document.getElementById('loadingOverlay').classList.toggle('hidden', !show);
+}
+
+// ── 歷史清單折疊 ──
+let historyOpen = false;
+function toggleHistory() {
+    historyOpen = !historyOpen;
+    const wrapper = document.getElementById('expenseListWrapper');
+    const toggle = document.getElementById('historyToggle');
+    const hint = document.getElementById('toggleHint');
+    wrapper.classList.toggle('open', historyOpen);
+    toggle.classList.toggle('open', historyOpen);
+    hint.textContent = historyOpen ? '點擊收合' : '點擊展開';
+}
+
+// ── 讀取資料 ──
+async function loadExpenses() {
+    if (isSynced) {
+        setLoading(true);
+        try {
+            const res = await fetch(GAS_API_URL);
+            expenses = await res.json();
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(expenses));
+            showToast('☁️ 雲端資料已同步');
+        } catch (err) {
+            showToast('⚠️ 雲端讀取失敗，顯示本地快取');
+            expenses = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+        }
+        setLoading(false);
+    } else {
+        expenses = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    }
+    renderExpenses();
+    renderAnalysis();
+}
+
+// ── 新增資料 ──
+document.getElementById('expenseForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.textContent = '儲存中...';
+
+    const newExpense = {
+        id: Date.now().toString(),
+        amount: document.getElementById('amount').value,
+        category: document.getElementById('category').value,
+        date: document.getElementById('date').value,
+        note: document.getElementById('note').value
+    };
+
+    if (isSynced) {
+        setLoading(true);
+        try {
+            await fetch(GAS_API_URL, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'add', ...newExpense })
+            });
+            showToast('✅ 已儲存到雲端！');
+        } catch {
+            showToast('⚠️ 雲端儲存失敗，已存至本地');
+        }
+        setLoading(false);
+    } else {
+        showToast('💾 已儲存到本地');
+    }
+
+    expenses.push(newExpense);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(expenses));
+    renderExpenses();
+    renderAnalysis();
+
+    document.getElementById('amount').value = '';
+    document.getElementById('note').value = '';
+    btn.disabled = false;
+    btn.textContent = '記錄下來 🌸';
+    document.getElementById('amount').focus();
+});
+
+// ── 刪除資料 ──
+window.deleteExpense = async function(id) {
+    if (!confirm('確定要刪除這筆紀錄嗎？🦌')) return;
+    if (isSynced) {
+        setLoading(true);
+        try {
+            await fetch(GAS_API_URL, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'delete', id })
+            });
+        } catch {
+            showToast('⚠️ 雲端刪除失敗');
+        }
+        setLoading(false);
+    }
+    expenses = expenses.filter(e => e.id !== id);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(expenses));
+    renderExpenses();
+    renderAnalysis();
+    showToast('🗑️ 已刪除');
+};
+
+// ── 費用分析 ──
+function renderAnalysis() {
+    const container = document.getElementById('analysisContent');
+    const cm = today.getMonth(), cy = today.getFullYear();
+
+    // 只分析本月
+    const monthExpenses = expenses.filter(exp => {
+        const d = new Date(exp.date);
+        return d.getMonth() === cm && d.getFullYear() === cy;
+    });
+
+    if (monthExpenses.length === 0) {
+        container.innerHTML = '<p class="text-sm text-gray-400 text-center py-4">本月尚無支出紀錄</p>';
+        return;
+    }
+
+    // 統計各大類
+    const catMap = {};
+    let total = 0;
+    monthExpenses.forEach(exp => {
+        const { emoji, mainCat } = splitCategory(exp.category);
+        const key = emoji + ' ' + mainCat;
+        const amt = Number(exp.amount);
+        catMap[key] = (catMap[key] || 0) + amt;
+        total += amt;
+    });
+
+    // 排序（金額大到小）
+    const sorted = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
+
+    const dayCount = new Set(monthExpenses.map(exp => exp.date)).size || 1;
+    const averagePerDay = Math.round(total / dayCount);
+    const averagePerRecord = Math.round(total / monthExpenses.length);
+    const biggest = [...monthExpenses].sort((a, b) => Number(b.amount) - Number(a.amount))[0];
+    const last7Start = new Date(cy, cm, today.getDate() - 6);
+    const last7Total = monthExpenses.reduce((sum, exp) => {
+        const d = new Date(exp.date);
+        return d >= last7Start && d <= today ? sum + Number(exp.amount) : sum;
+    }, 0);
+    const topCat = sorted[0];
+    const topPct = topCat && total > 0 ? ((topCat[1] / total) * 100).toFixed(1) : '0.0';
+
+    let html = `
+    <div class="analysis-grid">
+        <div class="analysis-stat">
+            <div class="text-[11px] text-gray-400 font-bold">每日平均</div>
+            <div class="text-lg font-extrabold text-dark">$${averagePerDay.toLocaleString()}</div>
+        </div>
+        <div class="analysis-stat">
+            <div class="text-[11px] text-gray-400 font-bold">每筆平均</div>
+            <div class="text-lg font-extrabold text-dark">$${averagePerRecord.toLocaleString()}</div>
+        </div>
+        <div class="analysis-stat">
+            <div class="text-[11px] text-gray-400 font-bold">最大支出</div>
+            <div class="text-lg font-extrabold text-dark">$${Number(biggest.amount).toLocaleString()}</div>
+            <div class="text-[11px] text-gray-400 font-bold truncate">${biggest.note || splitCategory(biggest.category).catText}</div>
+        </div>
+        <div class="analysis-stat">
+            <div class="text-[11px] text-gray-400 font-bold">近 7 天</div>
+            <div class="text-lg font-extrabold text-dark">$${last7Total.toLocaleString()}</div>
+        </div>
+    </div>
+    <div class="bg-pink-50 border border-pink-100 rounded-2xl px-4 py-3 mb-4">
+        <div class="text-xs text-gray-400 font-bold">本月最高科目</div>
+        <div class="font-extrabold text-dark">${topCat[0]} · $${topCat[1].toLocaleString()} <span class="text-xs text-gray-400">(${topPct}%)</span></div>
+    </div>`;
+    sorted.forEach(([cat, amt]) => {
+        const pct = total > 0 ? ((amt / total) * 100) : 0;
+        const catTextOnly = cat.replace(/^[\uD800-\uDBFF][\uDC00-\uDFFF]\s?|^[\u2600-\u27FF\uFE00-\uFE0F]\s?|^[^\s]\s?/u, '').trim();
+        const color = getCatColor(catTextOnly);
+
+        html += `
+        <div class="mb-3">
+            <div class="flex justify-between items-center mb-1">
+                <span class="text-sm font-bold text-dark">${cat}</span>
+                <span class="text-sm font-extrabold text-dark">$${amt.toLocaleString()} <span class="text-xs font-bold text-gray-400">(${pct.toFixed(1)}%)</span></span>
+            </div>
+            <div class="w-full bg-gray-100 rounded-full h-[22px] overflow-hidden">
+                <div class="chart-bar" style="width:${pct}%;background:${color};"></div>
+            </div>
+        </div>`;
+    });
+
+    // 總計
+    html += `<div class="border-t-2 border-pink-100 pt-3 mt-4 flex justify-between items-center">
+        <span class="text-sm font-bold text-gray-400">本月共 ${monthExpenses.length} 筆 · ${sorted.length} 類</span>
+        <span class="text-md font-extrabold text-primary">合計 $${total.toLocaleString()}</span>
+    </div>`;
+
+    container.innerHTML = html;
+}
+
+// ── 渲染歷史清單 ──
+function renderExpenses() {
+    const list = document.getElementById('expenseList');
+    list.innerHTML = '';
+
+    expenses.sort((a, b) => {
+        const d = new Date(b.date) - new Date(a.date);
+        return d !== 0 ? d : Number(b.id) - Number(a.id);
+    });
+
+    document.getElementById('emptyState').classList.toggle('hidden', expenses.length > 0);
+    document.getElementById('recordCount').textContent = `${expenses.length} 筆`;
+
+    let monthTotal = 0;
+    const cm = today.getMonth(), cy = today.getFullYear();
+
+    expenses.forEach(exp => {
+        const d = new Date(exp.date);
+        if (d.getMonth() === cm && d.getFullYear() === cy) {
+            monthTotal += Number(exp.amount);
+        }
+        const { emoji, catText } = splitCategory(exp.category);
+        const displayName = exp.note || catText;
+
+        const div = document.createElement('div');
+        div.className = 'expense-item card-kawaii p-4 bg-white';
+        div.dataset.expenseId = exp.id;
+        div.onclick = () => toggleExpenseDetail(exp.id);
+        div.innerHTML = `
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3 flex-1 overflow-hidden">
+                    <div class="w-11 h-11 rounded-2xl bg-pink-50 flex items-center justify-center text-2xl shrink-0 border border-pink-100">${emoji}</div>
+                    <div class="flex-1 min-w-0">
+                        <div class="font-bold text-dark truncate">${displayName}</div>
+                        <div class="text-[11px] text-gray-400 mt-0.5 font-bold">${exp.date}</div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0 ml-3">
+                    <div class="font-extrabold text-primary text-lg">$${Number(exp.amount).toLocaleString()}</div>
+                    <svg class="w-4 h-4 text-gray-300 item-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </div>
+            </div>
+            <div class="expense-detail border-t border-pink-100">
+                <div class="pt-3 flex items-start justify-between gap-3">
+                    <div class="text-xs text-gray-400 font-bold leading-6">
+                        <div>科目：${catText}</div>
+                        <div>備註：${exp.note || '無'}</div>
+                    </div>
+                    <button onclick="event.stopPropagation(); deleteExpense('${exp.id}')"
+                        class="w-9 h-9 rounded-full flex items-center justify-center text-gray-300 hover:bg-red-50 hover:text-alert transition-colors shrink-0">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                    </svg>
+                    </button>
+                </div>
+            </div>`;
+        list.appendChild(div);
+    });
+
+    document.getElementById('totalExpense').textContent = monthTotal.toLocaleString();
+}
+
+// ── 固定費用提醒 ──
+function generateReminders() {
+    const day = today.getDate();
+    const month = today.getMonth();
+    const year = today.getFullYear();
+
+    function daysUntil(targetDay) {
+        let diff = targetDay - day;
+        if (diff < 0) {
+            const next = new Date(year, month + 1, targetDay);
+            diff = Math.ceil((next - today) / 86400000);
+        }
+        return diff;
+    }
+
+    const reminders = [];
+
+    const md = daysUntil(21);
+    if (md === 0)
+        reminders.push(`<div class="bg-white p-3 rounded-xl border-l-4 border-alert text-dark shadow-sm">⚠️ <b>今天 (21日)</b> 是房貸扣款日！請確認帳戶有 <b>$27,000</b></div>`);
+    else if (md <= 7)
+        reminders.push(`<div class="bg-white p-3 rounded-xl border-l-4 border-alert text-dark shadow-sm">⏰ 再 <b class="text-red-500">${md} 天</b> (21日) 房貸扣款，請備妥 <b>$27,000</b></div>`);
+    else
+        reminders.push(`<div class="bg-white/60 p-2 rounded-xl text-gray-500 text-xs font-bold">🏠 房貸每月21日扣款・$27,000</div>`);
+
+    const cd = daysUntil(23);
+    if (cd === 0)
+        reminders.push(`<div class="bg-white p-3 rounded-xl border-l-4 border-alert text-dark shadow-sm">⚠️ <b>今天 (23日)</b> 是車貸扣款日！請確認帳戶有 <b>$35,000</b></div>`);
+    else if (cd <= 7)
+        reminders.push(`<div class="bg-white p-3 rounded-xl border-l-4 border-alert text-dark shadow-sm">⏰ 再 <b class="text-red-500">${cd} 天</b> (23日) 車貸扣款，請備妥 <b>$35,000</b></div>`);
+    else
+        reminders.push(`<div class="bg-white/60 p-2 rounded-xl text-gray-500 text-xs font-bold">🚗 車貸每月23日扣款・$35,000</div>`);
+
+    reminders.push(`<div class="bg-white/60 p-2 rounded-xl text-gray-500 text-xs font-bold">💧 水電瓦斯每兩個月一次，請留意帳單</div>`);
+    reminders.push(`<div class="bg-white/60 p-2 rounded-xl text-gray-500 text-xs font-bold">📚 記得每月記錄小孩補習費</div>`);
+
+    document.getElementById('remindersList').innerHTML = reminders.join('');
+}
+
+// ── PWA 安裝邏輯 ──
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    document.getElementById('installBanner').classList.add('show');
+});
+
+document.getElementById('installBtn').addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+        showToast('🎉 安裝成功！');
+    }
+    deferredPrompt = null;
+    document.getElementById('installBanner').classList.remove('show');
+});
+
+// 註冊 Service Worker
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js')
+        .then(() => console.log('SW registered'))
+        .catch(err => console.log('SW registration failed', err));
+}
+
+// ── 初始化 ──
+generateReminders();
+loadExpenses();
+</script>
+</body>
+</html>
