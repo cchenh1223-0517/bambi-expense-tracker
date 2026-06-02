@@ -1,6 +1,6 @@
 const CACHE_NAME = 'bambi-v1';
 const urlsToCache = [
-  './expense-tracker.html',
+  './index.html',
   './bambi.png',
   './manifest.json'
 ];
